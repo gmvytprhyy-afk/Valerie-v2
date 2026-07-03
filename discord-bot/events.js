@@ -142,6 +142,8 @@ const handleMemberJoin = async (member) => {
     if (inviterId && inviterId !== userId) {
       console.log(`🎯 ${member.user.tag} joined using invite ${inviteCode} from ${inviterId}`);
       
+      // Ensure the inviter has an economy entry before awarding crystals
+      await getOrCreateCrystalEntry(inviterId, guildId);
       // Award 1 crystal to inviter
       await addCrystals(
         inviterId,
