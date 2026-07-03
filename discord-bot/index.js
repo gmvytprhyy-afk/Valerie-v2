@@ -764,22 +764,29 @@ const registerCommands = async () => {
   try {
     const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN || config.token);
     
+    // Prefer env var, then config, then fall back to the logged-in client's own ID
+    const clientId = process.env.CLIENT_ID
+      || (config.clientId !== 'YOUR_CLIENT_ID_HERE' ? config.clientId : null)
+      || client.user?.id;
+
+    if (!clientId) {
+      console.error('❌ No client ID available — set CLIENT_ID env var on Railway');
+      return;
+    }
+
     console.log('🔄 Registering slash commands...');
     
     const guildId = process.env.GUILD_ID || config.guildId;
     if (guildId && guildId !== 'YOUR_GUILD_ID_HERE') {
       await rest.put(
-        Routes.applicationGuildCommands(
-          process.env.CLIENT_ID || config.clientId,
-          guildId
-        ),
+        Routes.applicationGuildCommands(clientId, guildId),
         { body: commands }
       );
       console.log(`✅ ${commands.length} guild commands registered (instant)`);
     }
     
     await rest.put(
-      Routes.applicationCommands(process.env.CLIENT_ID || config.clientId),
+      Routes.applicationCommands(clientId),
       { body: commands }
     );
     console.log(`✅ ${commands.length} global commands registered (1 hour delay)`);
