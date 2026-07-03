@@ -123,12 +123,28 @@ const handleMemberJoin = async (member) => {
     const currentInvites = await member.guild.invites.fetch();
     const oldInvites = inviteCache[guildId] || new Map();
     
-    // Find the invite that was used (increased usage count)
+    console.log(`🔍 Invite check: cached=${oldInvites.size}, current=${currentInvites.size}`);
+    
+    // Case 1: invite still exists but use count increased
     for (const [code, invite] of currentInvites) {
       if (oldInvites.has(code)) {
-        const oldUses = oldInvites.get(code).uses || 0;
-        if (invite.uses > oldUses) {
+        const oldUses = oldInvites.get(code).uses ?? 0;
+        const newUses = invite.uses ?? 0;
+        console.log(`🔍 Invite ${code}: old=${oldUses} new=${newUses} inviter=${invite.inviter?.id}`);
+        if (newUses > oldUses) {
           inviterId = invite.inviter?.id;
+          inviteCode = code;
+          break;
+        }
+      }
+    }
+    
+    // Case 2: invite was deleted after use (e.g. max 1 use) — it's in old cache but gone now
+    if (!inviterId) {
+      for (const [code, oldInvite] of oldInvites) {
+        if (!currentInvites.has(code) && oldInvite.inviter) {
+          console.log(`🔍 Invite ${code} disappeared (used up) — inviter=${oldInvite.inviter.id}`);
+          inviterId = oldInvite.inviter.id;
           inviteCode = code;
           break;
         }
