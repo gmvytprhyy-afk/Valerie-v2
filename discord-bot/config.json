@@ -1,0 +1,12 @@
+{
+  "token": "YOUR_BOT_TOKEN_HERE",
+  "clientId": "YOUR_CLIENT_ID_HERE",
+  "guildId": "YOUR_GUILD_ID_HERE",
+  "database": {
+    "host": "localhost",
+    "port": 5432,
+    "database": "valerie_db",
+    "user": "postgres",
+    "password": "your_password"
+  }
+}

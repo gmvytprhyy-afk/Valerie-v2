@@ -1,24 +1,20 @@
 {
-  "name": "discord-bot",
+  "name": "valerie-helper",
   "version": "1.0.0",
-  "description": "Discord bot deployable on Railway",
-  "main": "dist/index.js",
+  "description": "Valerie Helper - Discord Bot with PostgreSQL",
+  "main": "index.js",
   "scripts": {
-    "build": "tsc",
-    "start": "node dist/index.js",
-    "dev": "ts-node src/index.ts",
-    "deploy-commands": "ts-node src/deploy-commands.ts"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "dependencies": {
-    "discord.js": "^14.16.3",
-    "dotenv": "^16.4.5"
-  },
-  "devDependencies": {
-    "@types/node": "^22.0.0",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.5.4"
+    "discord.js": "^14.14.1",
+    "pg": "^8.11.3"
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "keywords": ["discord", "bot", "moderation", "economy", "tickets"],
+  "author": "Valerie Helper",
+  "license": "MIT"
 }
