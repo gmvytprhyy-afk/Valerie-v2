@@ -371,10 +371,11 @@ const commands = [
     description: 'Open the interactive sell system'
   },
   
-  // ===== SELL ADMIN COMMANDS =====
+  // ===== SELL ADMIN COMMANDS (hidden from non-admins in Discord UI) =====
   {
     name: 'createsellpanel',
     description: 'Create a new sell panel (Admin only)',
+    default_member_permissions: '8',
     options: [
       { name: 'title', description: 'Panel title', type: 3, required: true, max_length: 100 },
       { name: 'description', description: 'Panel description', type: 3, required: true, max_length: 1000 },
@@ -388,6 +389,7 @@ const commands = [
   {
     name: 'editsellpanel',
     description: 'Edit an existing sell panel (Admin only)',
+    default_member_permissions: '8',
     options: [
       { name: 'panel_id', description: 'ID of the panel to edit', type: 4, required: true },
       { name: 'title', description: 'New panel title', type: 3, required: false, max_length: 100 },
@@ -402,8 +404,20 @@ const commands = [
   {
     name: 'deletesellpanel',
     description: 'Delete a sell panel (Admin only)',
+    default_member_permissions: '8',
     options: [
       { name: 'panel_id', description: 'ID of the panel to delete', type: 4, required: true }
+    ]
+  },
+  
+  // ===== SAY COMMAND =====
+  {
+    name: 'say',
+    description: 'Send a message as the bot',
+    default_member_permissions: '2048',
+    options: [
+      { name: 'message', description: 'The message to send', type: 3, required: true },
+      { name: 'channel', description: 'Channel to send in (defaults to current channel)', type: 7, required: false }
     ]
   },
   
@@ -1097,55 +1111,46 @@ const handleShop = async (interaction) => {
 // ================ SELL HANDLER ================
 
 /**
- * /sell - Main sell menu
+ * /sell - Opens the sell modal directly (no panel selection needed)
+ * Must be called BEFORE deferReply — modals must be the first response.
  */
 const handleSell = async (interaction) => {
-  try {
-    const guildId = interaction.guildId;
-    
-    const panels = await getSellPanelsByGuild(guildId);
-    
-    const embed = sellMenuEmbed(panels, {
-      author: {
-        name: interaction.user.username,
-        iconURL: interaction.user.displayAvatarURL()
-      }
-    });
-    
-    const row = new ActionRowBuilder();
-    
-    if (panels.length > 0) {
-      const select = new StringSelectMenuBuilder()
-        .setCustomId('sell_panel_select')
-        .setPlaceholder('Select a sell panel...')
-        .addOptions([
-          ...panels.slice(0, 25).map(panel => ({
-            label: panel.title.length > 25 ? panel.title.slice(0, 22) + '...' : panel.title,
-            value: panel.panel_id.toString(),
-            description: panel.description ? panel.description.slice(0, 50) : 'No description',
-            emoji: '💰'
-          }))
-        ]);
-      row.addComponents(select);
-    }
-    
-    const row2 = new ActionRowBuilder()
-      .addComponents(
-        new ButtonBuilder()
-          .setCustomId('sell_create_listing')
-          .setLabel('📝 Create Listing')
-          .setStyle(ButtonStyle.Success)
-      );
-    
-    await interaction.editReply({
-      embeds: [embed],
-      components: panels.length > 0 ? [row, row2] : [row2]
-    });
-  } catch (error) {
-    console.error('Error in /sell:', error);
-    const embed = errorEmbed('Failed to load sell system.');
-    await interaction.editReply({ embeds: [embed] });
-  }
+  const modal = new ModalBuilder()
+    .setCustomId('sell_listing_modal')
+    .setTitle('📝 Create Sell Listing');
+
+  const titleInput = new TextInputBuilder()
+    .setCustomId('listing_title')
+    .setLabel('Listing Title')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('What are you selling?')
+    .setRequired(true)
+    .setMaxLength(100);
+
+  const descInput = new TextInputBuilder()
+    .setCustomId('listing_description')
+    .setLabel('Description')
+    .setStyle(TextInputStyle.Paragraph)
+    .setPlaceholder('Describe your item or service in detail...')
+    .setRequired(true)
+    .setMaxLength(500);
+
+  const buttonInput = new TextInputBuilder()
+    .setCustomId('ticket_button_name')
+    .setLabel('Ticket Button Name')
+    .setStyle(TextInputStyle.Short)
+    .setPlaceholder('e.g. Buy Now, Inquire, Contact Me')
+    .setRequired(true)
+    .setMaxLength(40)
+    .setValue('📩 Open Ticket');
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(titleInput),
+    new ActionRowBuilder().addComponents(descInput),
+    new ActionRowBuilder().addComponents(buttonInput)
+  );
+
+  await interaction.showModal(modal);
 };
 
 // ================ OTHER COMMAND HANDLERS ================
@@ -3319,142 +3324,46 @@ client.on('interactionCreate', async (interaction) => {
   }
 });
 
-// Sell Panel Select
-client.on('interactionCreate', async (interaction) => {
-  if (interaction.isStringSelectMenu() && interaction.customId === 'sell_panel_select') {
-    const panelId = parseInt(interaction.values[0]);
-    try {
-      const panel = await getSellPanel(panelId);
-      const embed = sellListingEmbed(panel, {
-        author: {
-          name: interaction.user.username,
-          iconURL: interaction.user.displayAvatarURL()
-        }
-      });
-      await interaction.update({ embeds: [embed] });
-    } catch (error) {
-      console.error('Error in sell panel select:', error);
-      const embed = errorEmbed('Failed to load panel.');
-      await interaction.update({ embeds: [embed] });
-    }
-  }
-});
-
-// Create Listing Button
-client.on('interactionCreate', async (interaction) => {
-  if (interaction.isButton() && interaction.customId === 'sell_create_listing') {
-    const modal = new ModalBuilder()
-      .setCustomId('sell_listing_modal')
-      .setTitle('📝 Create Sell Listing');
-    
-    const nameInput = new TextInputBuilder()
-      .setCustomId('item_name')
-      .setLabel('Item Name')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('Enter the item name')
-      .setRequired(true)
-      .setMaxLength(100);
-    
-    const priceInput = new TextInputBuilder()
-      .setCustomId('item_price')
-      .setLabel('Price (in crystals)')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('Enter the price')
-      .setRequired(true);
-    
-    const quantityInput = new TextInputBuilder()
-      .setCustomId('item_quantity')
-      .setLabel('Quantity')
-      .setStyle(TextInputStyle.Short)
-      .setPlaceholder('Enter the quantity (default: 1)')
-      .setRequired(false);
-    
-    const descInput = new TextInputBuilder()
-      .setCustomId('item_description')
-      .setLabel('Description')
-      .setStyle(TextInputStyle.Paragraph)
-      .setPlaceholder('Describe your item...')
-      .setRequired(false)
-      .setMaxLength(500);
-    
-    const row1 = new ActionRowBuilder().addComponents(nameInput);
-    const row2 = new ActionRowBuilder().addComponents(priceInput);
-    const row3 = new ActionRowBuilder().addComponents(quantityInput);
-    const row4 = new ActionRowBuilder().addComponents(descInput);
-    
-    modal.addComponents(row1, row2, row3, row4);
-    
-    await interaction.showModal(modal);
-  }
-});
-
 // Sell Listing Modal Submit
-// Sell Listing Modal Submit (UPDATED)
 client.on('interactionCreate', async (interaction) => {
-  if (interaction.isModalSubmit() && interaction.customId === 'sell_listing_modal') {
-    const name = interaction.fields.getTextInputValue('item_name');
-    const price = parseInt(interaction.fields.getTextInputValue('item_price'));
-    const quantity = parseInt(interaction.fields.getTextInputValue('item_quantity')) || 1;
-    const description = interaction.fields.getTextInputValue('item_description');
-    
-    if (!interaction.guildId) {
-      await interaction.reply({ embeds: [errorEmbed('This command can only be used in a server.')] });
-      return;
-    }
-    
-    try {
-      await interaction.deferReply();
-      
-      const panels = await getSellPanelsByGuild(interaction.guildId);
-      if (panels.length === 0) {
-        await interaction.editReply({ embeds: [errorEmbed('No sell panels available. Please contact an admin.')] });
-        return;
-      }
-      
-      const panelId = panels[0].panel_id;
-      
-      // ✅ Pass interaction to create Discord ticket
-      const result = await createSellListing(
-        panelId,
-        interaction.user.id,
-        interaction.guildId,
-        {
-          name: name,
-          price: price,
-          quantity: quantity,
-          description: description
-        },
-        interaction  // ← Pass the interaction
-      );
-      
-      const embed = successEmbed('✅ Sell Listing Created', {
+  if (!interaction.isModalSubmit() || interaction.customId !== 'sell_listing_modal') return;
+
+  const title      = interaction.fields.getTextInputValue('listing_title');
+  const description = interaction.fields.getTextInputValue('listing_description');
+  const buttonName = interaction.fields.getTextInputValue('ticket_button_name');
+
+  if (!interaction.guildId) {
+    await interaction.reply({ embeds: [errorEmbed('This can only be used in a server.')], ephemeral: true });
+    return;
+  }
+
+  try {
+    await interaction.deferReply({ ephemeral: true });
+
+    const result = await createSellListing(
+      interaction.user.id,
+      interaction.guildId,
+      { title, description, buttonName },
+      interaction
+    );
+
+    await interaction.editReply({
+      embeds: [successEmbed('✅ Sell Listing Created', {
         fields: [
-          { name: '🛒 Item', value: name, inline: true },
-          { name: '💰 Price', value: `${price} 💎`, inline: true },
-          { name: '🔢 Quantity', value: `${quantity}`, inline: true },
-          { name: '📝 Description', value: description || 'No description', inline: false },
+          { name: '📝 Title', value: title, inline: true },
+          { name: '🎫 Ticket Channel', value: result.channel.toString(), inline: true },
           { name: '📊 Status', value: '⏳ Pending Approval', inline: true }
         ],
-        author: {
-          name: interaction.user.username,
-          iconURL: interaction.user.displayAvatarURL()
-        }
-      });
-      
-      await interaction.editReply({ embeds: [embed] });
-      
-      // If ticket channel was created, send a follow-up
-      if (result.ticketChannel) {
-        await interaction.followUp({ 
-          content: `🎫 A sell ticket has been created: ${result.ticketChannel}`,
-          ephemeral: false
-        });
-      }
-    } catch (error) {
-      console.error('Error in sell listing modal:', error);
-      await interaction.editReply({
-        embeds: [errorEmbed(error.message || 'Failed to create sell listing.')]
-      });
+        author: { name: interaction.user.username, iconURL: interaction.user.displayAvatarURL() }
+      })]
+    });
+  } catch (error) {
+    console.error('Error in sell listing modal:', error);
+    const msg = error.message || 'Failed to create sell listing.';
+    if (interaction.deferred) {
+      await interaction.editReply({ embeds: [errorEmbed(msg)] });
+    } else {
+      await interaction.reply({ embeds: [errorEmbed(msg)], ephemeral: true });
     }
   }
 });
@@ -3615,6 +3524,37 @@ client.on('interactionCreate', async (interaction) => {
 });
 
 
+// ================ SAY HANDLER ================
+
+/**
+ * /say - Send a message as the bot (Admin / Manage Messages only)
+ */
+const handleSay = async (interaction) => {
+  if (
+    !interaction.memberPermissions.has(PermissionFlagsBits.Administrator) &&
+    !interaction.memberPermissions.has(PermissionFlagsBits.ManageMessages)
+  ) {
+    await interaction.editReply({ embeds: [errorEmbed('You need **Administrator** or **Manage Messages** permissions.')] });
+    return;
+  }
+
+  const message = interaction.options.getString('message');
+  const targetChannel = interaction.options.getChannel('channel') || interaction.channel;
+
+  try {
+    await targetChannel.send(message);
+    await interaction.editReply({
+      embeds: [successEmbed('✅ Message Sent', {
+        fields: [{ name: '📍 Channel', value: targetChannel.toString(), inline: true }],
+        author: { name: interaction.user.username, iconURL: interaction.user.displayAvatarURL() }
+      })]
+    });
+  } catch (error) {
+    console.error('Error in /say:', error);
+    await interaction.editReply({ embeds: [errorEmbed('Failed to send message — check my permissions in that channel.')] });
+  }
+};
+
 // ================ ADMIN CRYSTAL HANDLERS ================
 
 /**
@@ -3741,7 +3681,13 @@ client.on('interactionCreate', async (interaction) => {
   const { commandName } = interaction;
   
   console.log(`📝 Command executed: /${commandName} by ${interaction.user.tag}`);
-  
+
+  // /sell shows a modal as the very first response — cannot defer before showModal
+  if (commandName === 'sell') {
+    try { await handleSell(interaction); } catch (e) { console.error('Error in /sell:', e); }
+    return;
+  }
+
   try {
     // Defer immediately so we have the full 15 minutes for DB calls
     // (Discord gives only 3 seconds for the first reply without deferral)
@@ -3771,13 +3717,13 @@ client.on('interactionCreate', async (interaction) => {
       case 'restock': await handleRestock(interaction); break;
       case 'shoplist': await handleShopList(interaction); break;
       
-      // Sell
-      case 'sell': await handleSell(interaction); break;
+      // Sell admin (sell itself is handled before deferReply above)
       case 'createsellpanel': await handleCreateSellPanel(interaction); break;
       case 'editsellpanel': await handleEditSellPanel(interaction); break;
       case 'deletesellpanel': await handleDeleteSellPanel(interaction); break;
       
       // Utility
+      case 'say': await handleSay(interaction); break;
       case 'ping': await handlePing(interaction); break;
       case 'help': await handleHelp(interaction); break;
       case 'serverinfo': await handleServerInfo(interaction); break;

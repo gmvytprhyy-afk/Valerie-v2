@@ -2259,30 +2259,24 @@ const createSellTicketChannel = async (guild, userId, sellItem) => {
 /**
  * Send initial sell ticket message
  */
-const sendSellTicketMessage = async (channel, sellItem, user) => {
+const sendSellTicketMessage = async (channel, sellItem, user, buttonName = '📩 Open Ticket') => {
   const embed = new EmbedBuilder()
     .setColor('#F39C12')
-    .setTitle('💰 Sell Listing Created')
-    .setDescription(`${user.username} has listed an item for sale!`)
+    .setTitle(`💰 ${sellItem.item_name}`)
+    .setDescription(sellItem.item_description || 'No description provided.')
     .setThumbnail(user.displayAvatarURL({ dynamic: true }))
     .addFields(
-      { name: '🎫 Ticket ID', value: `#${sellItem.sell_id}`, inline: true },
-      { name: '🛒 Item', value: sellItem.item_name, inline: true },
-      { name: '💰 Price', value: `${sellItem.price} 💎 each`, inline: true },
-      { name: '🔢 Quantity', value: `${sellItem.quantity}`, inline: true },
-      { name: '💎 Total Value', value: `${sellItem.price * sellItem.quantity} 💎`, inline: true },
-      { name: '📝 Description', value: sellItem.item_description || 'No description', inline: false },
+      { name: '🎫 Listing ID', value: `#${sellItem.sell_id}`, inline: true },
+      { name: '👤 Seller', value: `<@${user.id}>`, inline: true },
+      { name: '🔘 Ticket Button', value: buttonName, inline: true },
       { name: '📊 Status', value: '⏳ Pending Approval', inline: true }
     )
     .setTimestamp()
     .setFooter({ text: 'Sell Ticket' });
-  
-  await channel.send({ 
-    content: `<@${user.id}>`,
-    embeds: [embed]
-  });
-  
-  // Send a follow-up message with ticket actions
+
+  await channel.send({ content: `<@${user.id}>`, embeds: [embed] });
+
+  // Admin action buttons
   const row = new ActionRowBuilder()
     .addComponents(
       new ButtonBuilder()
@@ -2298,11 +2292,85 @@ const sendSellTicketMessage = async (channel, sellItem, user) => {
         .setLabel('🔒 Close')
         .setStyle(ButtonStyle.Secondary)
     );
-  
-  await channel.send({ 
-    content: '📋 **Ticket Actions**',
-    components: [row]
+
+  await channel.send({ content: '📋 **Ticket Actions** (Admin/Manager only)', components: [row] });
+};
+
+/**
+ * Post a public sell listing in the sell panel channel so buyers can see it
+ */
+const sendPublicSellListing = async (channel, sellItem, user, buttonName) => {
+  const embed = new EmbedBuilder()
+    .setColor('#F39C12')
+    .setTitle(`💰 ${sellItem.item_name}`)
+    .setDescription(sellItem.item_description || 'No description provided.')
+    .setThumbnail(user.displayAvatarURL({ dynamic: true }))
+    .addFields(
+      { name: '👤 Seller', value: `<@${user.id}>`, inline: true },
+      { name: '🎫 Listing ID', value: `#${sellItem.sell_id}`, inline: true }
+    )
+    .setTimestamp()
+    .setFooter({ text: 'Click the button below to open a ticket with this seller' });
+
+  const row = new ActionRowBuilder()
+    .addComponents(
+      new ButtonBuilder()
+        .setCustomId(`open_sell_ticket_${sellItem.sell_id}`)
+        .setLabel(buttonName || '📩 Open Ticket')
+        .setStyle(ButtonStyle.Primary)
+    );
+
+  await channel.send({ embeds: [embed], components: [row] });
+};
+
+/**
+ * Full sell listing flow: creates item + ticket record + ticket channel + messages
+ */
+const createSellListing = async (userId, guildId, listingData, interaction) => {
+  const { title, description, buttonName } = listingData;
+  const guild = interaction.guild;
+  const user = interaction.user;
+
+  // Require at least one sell panel to be configured
+  const panels = await getSellPanels(guildId);
+  if (!panels || panels.length === 0) {
+    throw new Error('No sell panels configured. Ask an admin to run `/createsellpanel` first.');
+  }
+  const panel = panels[0];
+
+  // Create the sell item record
+  const sellItem = await createSellItem(panel.panel_id, userId, guildId, {
+    name: title,
+    description: description,
+    price: 0,
+    quantity: 1
   });
+
+  // Create the sell ticket record (price=0, uses notes to store button name)
+  const ticket = await createSellTicket(sellItem.sell_id, userId, guildId, title, 0, 1);
+
+  // Create the private ticket channel for the seller
+  const channel = await createSellTicketChannel(guild, userId, sellItem);
+
+  // Persist channel ID and button name to the ticket record
+  await update('sell_tickets', { channel_id: channel.id, notes: buttonName }, { ticket_id: ticket.ticket_id });
+
+  // Send the private ticket message (with admin action buttons)
+  await sendSellTicketMessage(channel, sellItem, user, buttonName);
+
+  // Also post a public listing in the panel channel (if configured)
+  if (panel.channel_id) {
+    try {
+      const panelChannel = guild.channels.cache.get(panel.channel_id);
+      if (panelChannel) {
+        await sendPublicSellListing(panelChannel, sellItem, user, buttonName);
+      }
+    } catch (err) {
+      console.error('Failed to post public sell listing in panel channel:', err);
+    }
+  }
+
+  return { sellItem, ticket, channel };
 };
 
 /**
@@ -2538,9 +2606,21 @@ module.exports = {
   // Sell Ticket Channel Helpers
   createSellTicketChannel,
   sendSellTicketMessage,
+  sendPublicSellListing,
   closeSellTicket,
   approveSellListingWithChannel,
-  rejectSellListingWithChannel
-  
-  // ... r
+  rejectSellListingWithChannel,
+
+  // New orchestration function
+  createSellListing,
+
+  // Aliases matching what index.js imports
+  createSellPanelCommand: createSellPanel,
+  editSellPanelCommand: updateSellPanel,
+  deleteSellPanelCommand: deleteSellPanel,
+  getSellPanelsByGuild: getSellPanels,
+  getSellListingsByGuild: getSellItems,
+  getUserSellListings: getSellItemsByUser,
+  approveSellListing: approveSellItem,
+  rejectSellListing: rejectSellItem,
 };
