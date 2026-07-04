@@ -1101,6 +1101,46 @@ const trackInviteLeave = async (userId, guildId) => {
   }
 };
 
+/**
+ * Get the inviter_id for a member by looking up the guild_members record.
+ * Works for ALL invite types (regular Discord invites and bot-tracked invites).
+ */
+const getInviterForMember = async (userId, guildId) => {
+  const row = await getOne('guild_members', { user_id: userId, guild_id: guildId });
+  return row?.inviter_id || null;
+};
+
+/**
+ * Upsert invite_stats for a regular (non-bot-tracked) invite join.
+ * For bot-tracked invites this is handled inside trackInviteUse.
+ */
+const upsertInviteStatsJoin = async (inviterId, guildId) => {
+  await pool.query(
+    `INSERT INTO invite_stats (user_id, guild_id, total_joins, active_joins)
+     VALUES ($1, $2, 1, 1)
+     ON CONFLICT (user_id, guild_id)
+     DO UPDATE SET total_joins = invite_stats.total_joins + 1,
+                   active_joins = invite_stats.active_joins + 1,
+                   updated_at = CURRENT_TIMESTAMP;`,
+    [inviterId, guildId]
+  );
+};
+
+/**
+ * Update invite_stats for a regular (non-bot-tracked) invite leave.
+ * For bot-tracked invites this is handled inside trackInviteLeave.
+ */
+const upsertInviteStatsLeave = async (inviterId, guildId) => {
+  await pool.query(
+    `UPDATE invite_stats
+     SET active_joins = GREATEST(active_joins - 1, 0),
+         total_leaves = total_leaves + 1,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE user_id = $1 AND guild_id = $2;`,
+    [inviterId, guildId]
+  );
+};
+
 const getInviteStats = async (userId, guildId) => {
   let stats = await getOne('invite_stats', { user_id: userId, guild_id: guildId });
   if (!stats) {
@@ -1886,14 +1926,20 @@ const logAction = async (guildId, action, data = {}) => {
 
 // ================ GUILD MEMBER HELPERS ================
 const trackMemberJoin = async (userId, guildId, inviteCode = null, inviterId = null) => {
-  return await insert('guild_members', {
-    user_id: userId,
-    guild_id: guildId,
-    invite_code: inviteCode,
-    inviter_id: inviterId,
-    joined_at: new Date(),
-    is_active: true
-  });
+  // Upsert so that rejoins update the record rather than failing on PK conflict.
+  // This ensures guild_members.inviter_id always reflects the most recent join.
+  await pool.query(
+    `INSERT INTO guild_members (user_id, guild_id, invite_code, inviter_id, joined_at, left_at, is_active, updated_at)
+     VALUES ($1, $2, $3, $4, CURRENT_TIMESTAMP, NULL, TRUE, CURRENT_TIMESTAMP)
+     ON CONFLICT (user_id, guild_id)
+     DO UPDATE SET invite_code = EXCLUDED.invite_code,
+                   inviter_id  = EXCLUDED.inviter_id,
+                   joined_at   = CURRENT_TIMESTAMP,
+                   left_at     = NULL,
+                   is_active   = TRUE,
+                   updated_at  = CURRENT_TIMESTAMP;`,
+    [userId, guildId, inviteCode, inviterId]
+  );
 };
 
 const trackMemberLeave = async (userId, guildId) => {
@@ -2583,6 +2629,9 @@ module.exports = {
   trackMemberJoin,
   trackMemberLeave,
   getMemberJoinInfo,
+  getInviterForMember,
+  upsertInviteStatsJoin,
+  upsertInviteStatsLeave,
   
   // Backup
   generateBackupCode,

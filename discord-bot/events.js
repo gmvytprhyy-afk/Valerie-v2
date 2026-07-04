@@ -14,8 +14,12 @@ const {
   getAutoModSettings,
   // Invite tracking helpers used directly in event handlers
   addCrystals,
+  removeCrystals,
   trackInviteUse,
   trackInviteLeave,
+  upsertInviteStatsJoin,
+  upsertInviteStatsLeave,
+  getInviterForMember,
   // Member lifecycle
   trackMemberJoin,
   trackMemberLeave,
@@ -191,12 +195,20 @@ const handleMemberJoin = async (member) => {
         `invite_${inviteCode}`
       );
       
-      // Track in database — only works for bot-tracked invites; ignore if not found
+      // Track in database — only works for bot-tracked invites; update stats directly for regular ones
       try {
         await trackInviteUse(inviteCode, userId);
       } catch (err) {
-        // Regular Discord invites not in bot's invite_tracking table — that's OK
-        console.log(`ℹ️ Invite ${inviteCode} not in bot tracking table (regular invite)`);
+        if (err.message === 'Invite not found') {
+          // Regular Discord invite — not in bot's invite_tracking table; update invite_stats directly
+          console.log(`ℹ️ Invite ${inviteCode} not in bot tracking table (regular invite) — updating invite_stats directly`);
+          await upsertInviteStatsJoin(inviterId, guildId).catch(e =>
+            console.error('Failed to upsert invite_stats on join:', e)
+          );
+        } else {
+          // Unexpected DB error — log but don't crash the join handler
+          console.error(`❌ trackInviteUse failed for ${inviteCode}:`, err);
+        }
       }
       
       // Send a DM to the inviter (optional)
@@ -280,12 +292,43 @@ const handleMemberLeave = async (member) => {
   console.log(`👋 ${member.user.tag} left ${member.guild.name}`);
   
   try {
-    // Process invite penalty — decrement active joins for the inviter
+    // Process invite penalty for bot-tracked invites (updates invite_stats, returns inviter info)
     const leavePenalty = await trackInviteLeave(userId, guildId);
     if (leavePenalty) {
       console.log(`📊 Invite leave recorded: invite code ${leavePenalty.invite_code}`);
     }
-    
+
+    // Determine the inviter:
+    // - Prefer the bot-tracking record (authoritative for bot-created invites)
+    // - Fall back to guild_members which covers all regular Discord invites
+    const inviterId = leavePenalty?.inviter_id
+      || await getInviterForMember(userId, guildId).catch(() => null);
+
+    // Deduct 1 crystal from inviter and (for regular invites) update invite_stats
+    if (inviterId && inviterId !== userId) {
+      // Deduct crystal (-1 for the leave)
+      try {
+        await removeCrystals(
+          inviterId,
+          guildId,
+          1,
+          `Invite leave penalty: ${userId} left (invited by ${inviterId})`,
+          `invite_leave_${userId}`
+        );
+        console.log(`💎 Deducted 1 crystal from ${inviterId} (${userId} left)`);
+      } catch (e) {
+        // Inviter may have 0 crystals — log but don't throw
+        console.log(`ℹ️ Could not deduct crystal from ${inviterId}: ${e.message}`);
+      }
+
+      // For regular (non-bot-tracked) invites, also update invite_stats active/leave counts
+      if (!leavePenalty) {
+        await upsertInviteStatsLeave(inviterId, guildId).catch(e =>
+          console.error('Failed to upsert invite_stats on leave:', e)
+        );
+      }
+    }
+
     // Track member leave
     await trackMemberLeave(userId, guildId).catch(() => {});
     console.log(`📊 Member leave tracked for ${userId}`);
