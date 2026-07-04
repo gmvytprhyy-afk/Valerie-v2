@@ -200,6 +200,9 @@ const client = new Client({
   ],
 });
 
+// Raise the listener limit to avoid MaxListenersExceededWarning (we have 15 handlers)
+client.setMaxListeners(20);
+
 // ================ SLASH COMMAND DEFINITIONS ================
 
 const commands = [
@@ -778,13 +781,16 @@ const registerCommands = async () => {
     
     const guildId = process.env.GUILD_ID || config.guildId;
     if (guildId && guildId !== 'YOUR_GUILD_ID_HERE') {
+      // Guild registration is instant — skip global to avoid the 1-hour propagation delay
       await rest.put(
         Routes.applicationGuildCommands(clientId, guildId),
         { body: commands }
       );
       console.log(`✅ ${commands.length} guild commands registered (instant)`);
+      return;
     }
-    
+
+    // No guild ID — fall back to global registration (up to 1 hour to propagate)
     await rest.put(
       Routes.applicationCommands(clientId),
       { body: commands }
@@ -876,7 +882,7 @@ const handleLeaderboard = async (interaction) => {
       thumbnail: interaction.guild.iconURL()
     });
     
-    const message = await interaction.reply({
+    const message = await interaction.editReply({
       embeds: [embed],
       components: [row],
       fetchReply: true
@@ -1012,13 +1018,14 @@ const handleLeaderboard = async (interaction) => {
       await modalInteraction.update({ embeds: [newEmbed], components: [newRow] });
     };
     
-    // Listen for modal submissions
+    // Listen for modal submissions — remove after 5 min to prevent memory leak
     client.once('interactionCreate', modalHandler);
+    setTimeout(() => client.removeListener('interactionCreate', modalHandler), 5 * 60 * 1000);
     
   } catch (error) {
     console.error('Error in /leaderboard:', error);
     const embed = errorEmbed('Failed to fetch leaderboard. Please try again later.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1076,14 +1083,14 @@ const handleShop = async (interaction) => {
           .setStyle(ButtonStyle.Primary)
       );
     
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [embed],
       components: categories.length > 0 ? [row, row2] : [row2]
     });
   } catch (error) {
     console.error('Error in /shop:', error);
     const embed = errorEmbed('Failed to load shop.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1130,14 +1137,14 @@ const handleSell = async (interaction) => {
           .setStyle(ButtonStyle.Success)
       );
     
-    await interaction.reply({
+    await interaction.editReply({
       embeds: [embed],
       components: panels.length > 0 ? [row, row2] : [row2]
     });
   } catch (error) {
     console.error('Error in /sell:', error);
     const embed = errorEmbed('Failed to load sell system.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1179,11 +1186,11 @@ const handleBalance = async (interaction) => {
       }
     );
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /balance:', error);
     const embed = errorEmbed('Failed to fetch balance. Please try again later.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1204,11 +1211,11 @@ const handleInvites = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /invites:', error);
     const embed = errorEmbed('Failed to fetch invite stats.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1248,11 +1255,11 @@ const handleInviteLeaderboard = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /inviteleaderboard:', error);
     const embed = errorEmbed('Failed to fetch leaderboard.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1265,8 +1272,6 @@ const handleCreateInvite = async (interaction) => {
   const userId = interaction.user.id;
   
   try {
-    await interaction.deferReply();
-    
     const result = await createCustomInviteLink(guildId, userId, maxUses);
     
     const embed = successEmbed('✅ Custom Invite Created', {
@@ -1307,11 +1312,11 @@ const handleMessages = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /messages:', error);
     const embed = errorEmbed('Failed to fetch message stats.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1350,11 +1355,11 @@ const handleMessageLeaderboard = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /messageleaderboard:', error);
     const embed = errorEmbed('Failed to fetch leaderboard.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1393,11 +1398,11 @@ const handlePing = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /ping:', error);
     const embed = errorEmbed('Failed to ping. Please try again later.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1514,11 +1519,11 @@ const handleHelp = async (interaction) => {
       timestamp: true
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /help:', error);
     const embed = errorEmbed('Failed to show help. Please try again later.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1538,11 +1543,11 @@ const handleServerInfo = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /serverinfo:', error);
     const embed = errorEmbed('Failed to fetch server info.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1563,11 +1568,11 @@ const handleUserInfo = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /userinfo:', error);
     const embed = errorEmbed('Failed to fetch user info.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1587,11 +1592,11 @@ const handleAvatar = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed], components: [row] });
+    await interaction.editReply({ embeds: [embed], components: [row] });
   } catch (error) {
     console.error('Error in /avatar:', error);
     const embed = errorEmbed('Failed to fetch avatar.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1611,11 +1616,11 @@ const handleBanner = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /banner:', error);
     const embed = errorEmbed('Failed to fetch banner.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1633,11 +1638,11 @@ const handleBotInfo = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /botinfo:', error);
     const embed = errorEmbed('Failed to fetch bot info.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1649,7 +1654,7 @@ const handleBotInfo = async (interaction) => {
 const handleSetWelcome = async (interaction) => {
   if (!interaction.memberPermissions.has('Administrator')) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -1698,11 +1703,11 @@ const handleSetWelcome = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /setwelcome:', error);
     const embed = errorEmbed(error.message || 'Failed to configure welcome system.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1712,7 +1717,7 @@ const handleSetWelcome = async (interaction) => {
 const handleSetLeave = async (interaction) => {
   if (!interaction.memberPermissions.has('Administrator')) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -1753,11 +1758,11 @@ const handleSetLeave = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /setleave:', error);
     const embed = errorEmbed(error.message || 'Failed to configure leave system.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1767,7 +1772,7 @@ const handleSetLeave = async (interaction) => {
 const handleSetLogChannel = async (interaction) => {
   if (!interaction.memberPermissions.has('Administrator')) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -1783,11 +1788,11 @@ const handleSetLogChannel = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /setlogchannel:', error);
     const embed = errorEmbed(error.message || 'Failed to set log channel.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1808,20 +1813,20 @@ const handleClaim = async (interaction) => {
           iconURL: interaction.user.displayAvatarURL()
         }
       });
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     const ticket = await getTicketById(ticketId);
     if (!ticket) {
       const embed = errorEmbed('Ticket not found.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     if (ticket.guild_id !== interaction.guildId) {
       const embed = errorEmbed('This ticket does not belong to this server.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -1834,11 +1839,11 @@ const handleClaim = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /claim:', error);
     const embed = errorEmbed(error.message || 'Failed to claim ticket.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1858,20 +1863,20 @@ const handleClose = async (interaction) => {
           iconURL: interaction.user.displayAvatarURL()
         }
       });
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     const ticket = await getTicketById(ticketId);
     if (!ticket) {
       const embed = errorEmbed('Ticket not found.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     if (ticket.guild_id !== interaction.guildId) {
       const embed = errorEmbed('This ticket does not belong to this server.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -1885,11 +1890,11 @@ const handleClose = async (interaction) => {
       reason: reason
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /close:', error);
     const embed = errorEmbed(error.message || 'Failed to close ticket.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1908,20 +1913,20 @@ const handleReopen = async (interaction) => {
           iconURL: interaction.user.displayAvatarURL()
         }
       });
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     const ticket = await getTicketById(ticketId);
     if (!ticket) {
       const embed = errorEmbed('Ticket not found.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     if (ticket.guild_id !== interaction.guildId) {
       const embed = errorEmbed('This ticket does not belong to this server.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -1935,11 +1940,11 @@ const handleReopen = async (interaction) => {
       reopenedBy: interaction.user.id
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /reopen:', error);
     const embed = errorEmbed(error.message || 'Failed to reopen ticket.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -1958,20 +1963,20 @@ const handleDelete = async (interaction) => {
           iconURL: interaction.user.displayAvatarURL()
         }
       });
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     const ticket = await getTicketById(ticketId);
     if (!ticket) {
       const embed = errorEmbed('Ticket not found.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     if (ticket.guild_id !== interaction.guildId) {
       const embed = errorEmbed('This ticket does not belong to this server.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -1985,11 +1990,11 @@ const handleDelete = async (interaction) => {
       transcript: result.transcript
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /delete:', error);
     const embed = errorEmbed(error.message || 'Failed to delete ticket.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2009,27 +2014,27 @@ const handleRename = async (interaction) => {
           iconURL: interaction.user.displayAvatarURL()
         }
       });
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     const ticket = await getTicketById(ticketId);
     if (!ticket) {
       const embed = errorEmbed('Ticket not found.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     if (ticket.guild_id !== interaction.guildId) {
       const embed = errorEmbed('This ticket does not belong to this server.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     const channel = await interaction.guild.channels.fetch(ticket.channel_id);
     if (!channel) {
       const embed = errorEmbed('Ticket channel not found.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -2043,11 +2048,11 @@ const handleRename = async (interaction) => {
       renamedBy: interaction.user.id
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /rename:', error);
     const embed = errorEmbed(error.message || 'Failed to rename ticket channel.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2067,27 +2072,27 @@ const handleAddUser = async (interaction) => {
           iconURL: interaction.user.displayAvatarURL()
         }
       });
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     const ticket = await getTicketById(ticketId);
     if (!ticket) {
       const embed = errorEmbed('Ticket not found.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     if (ticket.guild_id !== interaction.guildId) {
       const embed = errorEmbed('This ticket does not belong to this server.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     const channel = await interaction.guild.channels.fetch(ticket.channel_id);
     if (!channel) {
       const embed = errorEmbed('Ticket channel not found.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -2101,11 +2106,11 @@ const handleAddUser = async (interaction) => {
       addedBy: interaction.user.id
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /adduser:', error);
     const embed = errorEmbed(error.message || 'Failed to add user to ticket.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2125,27 +2130,27 @@ const handleRemoveUser = async (interaction) => {
           iconURL: interaction.user.displayAvatarURL()
         }
       });
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     const ticket = await getTicketById(ticketId);
     if (!ticket) {
       const embed = errorEmbed('Ticket not found.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     if (ticket.guild_id !== interaction.guildId) {
       const embed = errorEmbed('This ticket does not belong to this server.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     const channel = await interaction.guild.channels.fetch(ticket.channel_id);
     if (!channel) {
       const embed = errorEmbed('Ticket channel not found.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -2159,11 +2164,11 @@ const handleRemoveUser = async (interaction) => {
       removedBy: interaction.user.id
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /removeuser:', error);
     const embed = errorEmbed(error.message || 'Failed to remove user from ticket.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2182,20 +2187,20 @@ const handleTranscript = async (interaction) => {
           iconURL: interaction.user.displayAvatarURL()
         }
       });
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     const ticket = await getTicketById(ticketId);
     if (!ticket) {
       const embed = errorEmbed('Ticket not found.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
     if (ticket.guild_id !== interaction.guildId) {
       const embed = errorEmbed('This ticket does not belong to this server.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -2208,11 +2213,11 @@ const handleTranscript = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /transcript:', error);
     const embed = errorEmbed(error.message || 'Failed to generate transcript.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2232,7 +2237,7 @@ const handleBan = async (interaction) => {
   try {
     if (!interaction.memberPermissions.has('BanMembers')) {
       const embed = permissionErrorEmbed('You do not have permission to ban members.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -2245,11 +2250,11 @@ const handleBan = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /ban:', error);
     const embed = errorEmbed(error.message || 'Failed to ban user.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2263,7 +2268,7 @@ const handleKick = async (interaction) => {
   try {
     if (!interaction.memberPermissions.has('KickMembers')) {
       const embed = permissionErrorEmbed('You do not have permission to kick members.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -2276,11 +2281,11 @@ const handleKick = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /kick:', error);
     const embed = errorEmbed(error.message || 'Failed to kick user.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2295,7 +2300,7 @@ const handleTimeout = async (interaction) => {
   try {
     if (!interaction.memberPermissions.has('ModerateMembers')) {
       const embed = permissionErrorEmbed('You do not have permission to timeout members.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -2308,11 +2313,11 @@ const handleTimeout = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /timeout:', error);
     const embed = errorEmbed(error.message || 'Failed to timeout user.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2326,7 +2331,7 @@ const handleUntimeout = async (interaction) => {
   try {
     if (!interaction.memberPermissions.has('ModerateMembers')) {
       const embed = permissionErrorEmbed('You do not have permission to remove timeouts.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -2339,11 +2344,11 @@ const handleUntimeout = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /untimeout:', error);
     const embed = errorEmbed(error.message || 'Failed to remove timeout.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2358,7 +2363,7 @@ const handlePurge = async (interaction) => {
   try {
     if (!interaction.memberPermissions.has('ManageMessages')) {
       const embed = permissionErrorEmbed('You do not have permission to manage messages.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -2372,11 +2377,11 @@ const handlePurge = async (interaction) => {
       reason: reason
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /purge:', error);
     const embed = errorEmbed(error.message || 'Failed to purge messages.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2391,7 +2396,7 @@ const handleWarn = async (interaction) => {
   try {
     if (!interaction.memberPermissions.has('ModerateMembers')) {
       const embed = permissionErrorEmbed('You do not have permission to warn members.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -2404,11 +2409,11 @@ const handleWarn = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /warn:', error);
     const embed = errorEmbed(error.message || 'Failed to warn user.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2421,7 +2426,7 @@ const handleWarnings = async (interaction) => {
   try {
     if (!interaction.memberPermissions.has('ModerateMembers')) {
       const embed = permissionErrorEmbed('You do not have permission to view warnings.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -2435,11 +2440,11 @@ const handleWarnings = async (interaction) => {
       thumbnail: targetUser.displayAvatarURL()
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /warnings:', error);
     const embed = errorEmbed(error.message || 'Failed to fetch warnings.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2452,7 +2457,7 @@ const handleClearWarnings = async (interaction) => {
   try {
     if (!interaction.memberPermissions.has('ModerateMembers')) {
       const embed = permissionErrorEmbed('You do not have permission to clear warnings.');
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
       return;
     }
     
@@ -2465,11 +2470,11 @@ const handleClearWarnings = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /clearwarnings:', error);
     const embed = errorEmbed(error.message || 'Failed to clear warnings.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2481,7 +2486,7 @@ const handleClearWarnings = async (interaction) => {
 const handleAddItem = async (interaction) => {
   if (!interaction.memberPermissions.has('Administrator')) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -2507,11 +2512,11 @@ const handleAddItem = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /additem:', error);
     const embed = errorEmbed(error.message || 'Failed to add item.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2521,7 +2526,7 @@ const handleAddItem = async (interaction) => {
 const handleEditItem = async (interaction) => {
   if (!interaction.memberPermissions.has('Administrator')) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -2557,11 +2562,11 @@ const handleEditItem = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /edititem:', error);
     const embed = errorEmbed(error.message || 'Failed to edit item.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2571,7 +2576,7 @@ const handleEditItem = async (interaction) => {
 const handleRemoveItem = async (interaction) => {
   if (!interaction.memberPermissions.has('Administrator')) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -2587,11 +2592,11 @@ const handleRemoveItem = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /removeitem:', error);
     const embed = errorEmbed(error.message || 'Failed to remove item.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2601,7 +2606,7 @@ const handleRemoveItem = async (interaction) => {
 const handleRestock = async (interaction) => {
   if (!interaction.memberPermissions.has('Administrator')) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -2618,11 +2623,11 @@ const handleRestock = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /restock:', error);
     const embed = errorEmbed(error.message || 'Failed to restock item.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2641,11 +2646,11 @@ const handleShopList = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /shoplist:', error);
     const embed = errorEmbed('Failed to fetch shop list.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2657,7 +2662,7 @@ const handleShopList = async (interaction) => {
 const handleCreateSellPanel = async (interaction) => {
   if (!interaction.memberPermissions.has('Administrator')) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -2682,11 +2687,11 @@ const handleCreateSellPanel = async (interaction) => {
       thumbnail: thumbnail || null
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /createsellpanel:', error);
     const embed = errorEmbed(error.message || 'Failed to create sell panel.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2696,7 +2701,7 @@ const handleCreateSellPanel = async (interaction) => {
 const handleEditSellPanel = async (interaction) => {
   if (!interaction.memberPermissions.has('Administrator')) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -2728,11 +2733,11 @@ const handleEditSellPanel = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /editsellpanel:', error);
     const embed = errorEmbed(error.message || 'Failed to edit sell panel.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2742,7 +2747,7 @@ const handleEditSellPanel = async (interaction) => {
 const handleDeleteSellPanel = async (interaction) => {
   if (!interaction.memberPermissions.has('Administrator')) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -2758,11 +2763,11 @@ const handleDeleteSellPanel = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /deletesellpanel:', error);
     const embed = errorEmbed(error.message || 'Failed to delete sell panel.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2774,7 +2779,7 @@ const handleDeleteSellPanel = async (interaction) => {
 const handleAutoModEnable = async (interaction) => {
   if (!interaction.memberPermissions.has('Administrator')) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -2792,11 +2797,11 @@ const handleAutoModEnable = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /automod enable:', error);
     const embed = errorEmbed(error.message || 'Failed to enable AutoMod.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2806,7 +2811,7 @@ const handleAutoModEnable = async (interaction) => {
 const handleAutoModDisable = async (interaction) => {
   if (!interaction.memberPermissions.has('Administrator')) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -2824,11 +2829,11 @@ const handleAutoModDisable = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /automod disable:', error);
     const embed = errorEmbed(error.message || 'Failed to disable AutoMod.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2838,7 +2843,7 @@ const handleAutoModDisable = async (interaction) => {
 const handleAutoModSettings = async (interaction) => {
   if (!interaction.memberPermissions.has('Administrator')) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -2894,11 +2899,11 @@ const handleAutoModSettings = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /automod settings:', error);
     const embed = errorEmbed(error.message || 'Failed to update AutoMod settings.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -2915,13 +2920,11 @@ const handleBackup = async (interaction) => {
         iconURL: interaction.user.displayAvatarURL()
       }
     });
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
   try {
-    await interaction.deferReply();
-    
     const result = await createFullBackup(interaction.guildId, interaction.user.id);
     
     const embed = backupCreatedEmbed(result, {
@@ -2955,15 +2958,13 @@ const handleRestore = async (interaction) => {
         iconURL: interaction.user.displayAvatarURL()
       }
     });
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
   const backupCode = interaction.options.getString('code');
   
   try {
-    await interaction.deferReply();
-    
     if (!isValidBackupCode(backupCode)) {
       const embed = backupErrorEmbed({ message: 'Invalid backup code format. Use the code provided when creating the backup.' }, {
         author: {
@@ -3095,7 +3096,7 @@ const handleBackupList = async (interaction) => {
         iconURL: interaction.user.displayAvatarURL()
       }
     });
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -3109,7 +3110,7 @@ const handleBackupList = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /backuplist:', error);
     const embed = backupErrorEmbed({ message: error.message || 'Failed to list backups.' }, {
@@ -3118,7 +3119,7 @@ const handleBackupList = async (interaction) => {
         iconURL: interaction.user.displayAvatarURL()
       }
     });
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -3623,7 +3624,7 @@ const handleAddCrystals = async (interaction) => {
   // Check admin permissions
   if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -3647,11 +3648,11 @@ const handleAddCrystals = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /add-crystals:', error);
     const embed = errorEmbed(error.message || 'Failed to add crystals.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -3662,7 +3663,7 @@ const handleRemoveCrystals = async (interaction) => {
   // Check admin permissions
   if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -3686,11 +3687,11 @@ const handleRemoveCrystals = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /remove-crystals:', error);
     const embed = errorEmbed(error.message || 'Failed to remove crystals.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -3701,7 +3702,7 @@ const handleSetCrystals = async (interaction) => {
   // Check admin permissions
   if (!interaction.memberPermissions.has(PermissionFlagsBits.Administrator)) {
     const embed = errorEmbed('You need **Administrator** permissions to use this command.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
     return;
   }
   
@@ -3724,11 +3725,11 @@ const handleSetCrystals = async (interaction) => {
       }
     });
     
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   } catch (error) {
     console.error('Error in /set-crystals:', error);
     const embed = errorEmbed(error.message || 'Failed to set crystals.');
-    await interaction.reply({ embeds: [embed] });
+    await interaction.editReply({ embeds: [embed] });
   }
 };
 
@@ -3742,6 +3743,10 @@ client.on('interactionCreate', async (interaction) => {
   console.log(`📝 Command executed: /${commandName} by ${interaction.user.tag}`);
   
   try {
+    // Defer immediately so we have the full 15 minutes for DB calls
+    // (Discord gives only 3 seconds for the first reply without deferral)
+    await interaction.deferReply();
+
     switch (commandName) {
       // Economy
       case 'balance': await handleBalance(interaction); break;
@@ -3833,7 +3838,7 @@ case 'set-crystals':
       
       default: {
         const embed = errorEmbed(`Unknown command: /${commandName}`);
-        await interaction.reply({ embeds: [embed] });
+        await interaction.editReply({ embeds: [embed] });
       }
     }
   } catch (error) {
@@ -3842,7 +3847,7 @@ case 'set-crystals':
     if (interaction.replied || interaction.deferred) {
       await interaction.editReply({ embeds: [embed] });
     } else {
-      await interaction.reply({ embeds: [embed] });
+      await interaction.editReply({ embeds: [embed] });
     }
   }
 });

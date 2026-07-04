@@ -56,6 +56,8 @@ const handleReady = async (client) => {
 
 // ================ INVITE CACHE ================
 let inviteCache = {};
+// Short-lived tombstone for invites deleted right before MemberAdd fires
+let inviteTombstone = {};
 
 /**
  * Fetch and store all invites for a guild
@@ -139,11 +141,26 @@ const handleMemberJoin = async (member) => {
       }
     }
     
-    // Case 2: invite was deleted after use (e.g. max 1 use) — it's in old cache but gone now
+    // Case 2: invite deleted right before MemberAdd (e.g. max 1 use) — check tombstone
+    if (!inviterId) {
+      const tombstone = inviteTombstone[guildId] || {};
+      for (const [code, deletedInvite] of Object.entries(tombstone)) {
+        if (!currentInvites.has(code) && deletedInvite.inviter) {
+          console.log(`🔍 Tombstone invite ${code} matched — inviter=${deletedInvite.inviter.id}`);
+          inviterId = deletedInvite.inviter.id;
+          inviteCode = code;
+          // Clean up tombstone entry immediately
+          delete inviteTombstone[guildId][code];
+          break;
+        }
+      }
+    }
+    
+    // Case 3: invite in old cache but gone now (handleInviteDelete fired before tombstone was set up)
     if (!inviterId) {
       for (const [code, oldInvite] of oldInvites) {
         if (!currentInvites.has(code) && oldInvite.inviter) {
-          console.log(`🔍 Invite ${code} disappeared (used up) — inviter=${oldInvite.inviter.id}`);
+          console.log(`🔍 Invite ${code} disappeared from cache — inviter=${oldInvite.inviter.id}`);
           inviterId = oldInvite.inviter.id;
           inviteCode = code;
           break;
@@ -306,6 +323,16 @@ const handleInviteDelete = async (invite) => {
   if (!invite.guild) return;
   
   if (inviteCache[invite.guild.id]) {
+    // Keep the invite in a tombstone for 30s so MemberAdd can still find the inviter
+    if (invite.inviter) {
+      if (!inviteTombstone[invite.guild.id]) inviteTombstone[invite.guild.id] = {};
+      inviteTombstone[invite.guild.id][invite.code] = invite;
+      setTimeout(() => {
+        if (inviteTombstone[invite.guild.id]) {
+          delete inviteTombstone[invite.guild.id][invite.code];
+        }
+      }, 30_000);
+    }
     inviteCache[invite.guild.id].delete(invite.code);
   }
 };
