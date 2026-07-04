@@ -121,6 +121,11 @@ const handleMemberJoin = async (member) => {
     let inviterId = null;
     let inviteCode = null;
     
+    // Wait briefly for Discord's API to update invite use counts before fetching.
+    // Without this, GuildMemberAdd fires so fast that invites.fetch() still returns
+    // the old use count, making old===new and no inviter is ever detected.
+    await new Promise(resolve => setTimeout(resolve, 1500));
+
     // Get current invites
     const currentInvites = await member.guild.invites.fetch();
     const oldInvites = inviteCache[guildId] || new Map();
